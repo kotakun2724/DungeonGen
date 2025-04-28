@@ -236,30 +236,44 @@ public class dungeongen2d : MonoBehaviour
                 {
                     Instantiate(floor, new Vector3(x, 0f, y), Quaternion.identity, transform);
                 }
-                else // Empty
+                else // Empty → 壁判定
                 {
-                    if (IsBorder(x, y))
+                    // 隣接方向を取得
+                    Direction dir = GetBorderDir(x, y);
+                    if (dir != Direction.None)
                     {
-                        // 周囲に床がある境界セルだけ壁を設置
-                        Instantiate(wall, new Vector3(x, 0.5f, y), Quaternion.identity, transform);
+                        // Quaternion rot = (dir == Direction.LeftRight) ? Quaternion.Euler(0, 90, 0) : Quaternion.identity;
+
+                        // 水平方向の壁だけを90度回転
+                        Quaternion rot = (dir == Direction.LeftRight)
+                            ? Quaternion.Euler(0, 90, 0)  // 水平壁はY軸90度回転
+                            : Quaternion.identity;        // 垂直壁は回転なし
+
+                        Instantiate(wall, new Vector3(x, 0.5f, y), rot, transform);
                     }
                 }
             }
     }
 
-    bool IsBorder(int x, int y)
+    enum Direction { None, LeftRight, UpDown }
+
+    Direction GetBorderDir(int x, int y)
     {
-        // orthogonal floor detection for cleaner straight walls
-        bool left = IsFloor(x - 1, y);
-        bool right = IsFloor(x + 1, y);
-        bool up = IsFloor(x, y + 1);
-        bool down = IsFloor(x, y - 1);
+        bool L = IsFloor(x - 1, y);
+        bool R = IsFloor(x + 1, y);
+        bool U = IsFloor(x, y + 1);
+        bool D = IsFloor(x, y - 1);
 
-        bool orthAdjacent = left || right || up || down;
-        bool corner = (left || right) && (up || down); // diagonally touching both axes
+        int horiz = (L ? 1 : 0) + (R ? 1 : 0);
+        int vert = (U ? 1 : 0) + (D ? 1 : 0);
 
-        return orthAdjacent && !corner; // place wall only if straight border, skip corners
+        // "壁セル" の条件: 直交方向に **ちょうど 1** つ床が接している
+        if (horiz == 1 && vert == 0) return Direction.LeftRight;  // ── 壁
+        if (vert == 1 && horiz == 0) return Direction.UpDown;    // ｜ 壁
+        return Direction.None;                                     // 角 / 十字 / 孤立は置かない
     }
+
+    bool IsBorder(int x, int y) => GetBorderDir(x, y) != Direction.None;
 
     bool IsFloor(int x, int y)
     {
