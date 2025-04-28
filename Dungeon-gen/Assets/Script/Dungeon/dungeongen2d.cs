@@ -224,17 +224,48 @@ public class dungeongen2d : MonoBehaviour
     // -------------------------------------------------------------
     void InstantiatePrefabs()
     {
+        // 既存の子オブジェクトを削除
         foreach (Transform c in transform) Destroy(c.gameObject);
+
+        // 壁は "Room/Corridor" と接している Empty セルだけに置く
         for (int x = 0; x < w; x++)
             for (int y = 0; y < h; y++)
             {
-                GameObject prefab = map[x, y].type switch
+                CellType t = map[x, y].type;
+                if (t == CellType.Room || t == CellType.Corridor)
                 {
-                    CellType.Room or CellType.Corridor => floor,
-                    _ => wall
-                };
-                Instantiate(prefab, new Vector3(x, 0, y), Quaternion.identity, transform);
+                    Instantiate(floor, new Vector3(x, 0f, y), Quaternion.identity, transform);
+                }
+                else // Empty
+                {
+                    if (IsBorder(x, y))
+                    {
+                        // 周囲に床がある境界セルだけ壁を設置
+                        Instantiate(wall, new Vector3(x, 0.5f, y), Quaternion.identity, transform);
+                    }
+                }
             }
+    }
+
+    bool IsBorder(int x, int y)
+    {
+        // orthogonal floor detection for cleaner straight walls
+        bool left = IsFloor(x - 1, y);
+        bool right = IsFloor(x + 1, y);
+        bool up = IsFloor(x, y + 1);
+        bool down = IsFloor(x, y - 1);
+
+        bool orthAdjacent = left || right || up || down;
+        bool corner = (left || right) && (up || down); // diagonally touching both axes
+
+        return orthAdjacent && !corner; // place wall only if straight border, skip corners
+    }
+
+    bool IsFloor(int x, int y)
+    {
+        if (x < 0 || x >= w || y < 0 || y >= h) return false;
+        var t = map[x, y].type;
+        return t == CellType.Room || t == CellType.Corridor;
     }
 
     // =============================================================
