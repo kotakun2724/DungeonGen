@@ -222,38 +222,44 @@ public class dungeongen2d : MonoBehaviour
     // -------------------------------------------------------------
     // 5. プレハブ配置
     // -------------------------------------------------------------
+    #region 5. Instantiate prefabs
+    // 床セルに隣接する全ての空セル面を壁で埋める（欠け・隙間対策）
     void InstantiatePrefabs()
     {
-        // 既存の子オブジェクトを削除
+        // 既存オブジェクトをクリア
         foreach (Transform c in transform) Destroy(c.gameObject);
 
-        // 壁は "Room/Corridor" と接している Empty セルだけに置く
-        for (int x = 0; x < w; x++)
-            for (int y = 0; y < h; y++)
-            {
-                CellType t = map[x, y].type;
-                if (t == CellType.Room || t == CellType.Corridor)
-                {
+        Quaternion rot90 = Quaternion.Euler(0, 90, 0);
+
+        // 1. 床配置
+        for (int x = 0; x < w; ++x)
+            for (int y = 0; y < h; ++y)
+                if (IsFloor(x, y))
                     Instantiate(floor, new Vector3(x, 0f, y), Quaternion.identity, transform);
-                }
-                else // Empty → 壁判定
+
+        // 2. 壁配置：各床セルの 4 辺をチェック
+        for (int x = 0; x < w; ++x)
+            for (int y = 0; y < h; ++y)
+                if (IsFloor(x, y))
                 {
-                    // 隣接方向を取得
-                    Direction dir = GetBorderDir(x, y);
-                    if (dir != Direction.None)
-                    {
-                        // Quaternion rot = (dir == Direction.LeftRight) ? Quaternion.Euler(0, 90, 0) : Quaternion.identity;
+                    // 上 (Z+)
+                    if (!IsFloor(x, y + 1))
+                        Instantiate(wall, new Vector3(x, 0.5f, y + 0.5f), Quaternion.identity, transform);
 
-                        // 水平方向の壁だけを90度回転
-                        Quaternion rot = (dir == Direction.LeftRight)
-                            ? Quaternion.Euler(0, 90, 0)  // 水平壁はY軸90度回転
-                            : Quaternion.identity;        // 垂直壁は回転なし
+                    // 下 (Z-)
+                    if (!IsFloor(x, y - 1))
+                        Instantiate(wall, new Vector3(x, 0.5f, y - 0.5f), Quaternion.identity, transform);
 
-                        Instantiate(wall, new Vector3(x, 0.5f, y), rot, transform);
-                    }
+                    // 右 (X+)
+                    if (!IsFloor(x + 1, y))
+                        Instantiate(wall, new Vector3(x + 0.5f, 0.5f, y), rot90, transform);
+
+                    // 左 (X-)
+                    if (!IsFloor(x - 1, y))
+                        Instantiate(wall, new Vector3(x - 0.5f, 0.5f, y), rot90, transform);
                 }
-            }
     }
+    #endregion
 
     enum Direction { None, LeftRight, UpDown }
 
