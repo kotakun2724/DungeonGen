@@ -295,16 +295,16 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 56053640b09e144ff8433e7955fd47cd, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  w: 128
-  h: 128
+  w: 64
+  h: 64
   seed: 3
   roomAttempts: 200
   minRoomW: 4
   maxRoomW: 10
   minRoomH: 4
   maxRoomH: 10
-  corridorWidth: 1
-  extraConnectionChance: 0.25
+  corridorWidth: 2
+  extraConnectionChance: 0.494
   floor: {fileID: 1258203155}
   wall: {fileID: 19056796}
 --- !u!1 &1855646125
