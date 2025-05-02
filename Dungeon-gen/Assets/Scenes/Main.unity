@@ -303,8 +303,8 @@ MonoBehaviour:
   maxRoomW: 10
   minRoomH: 4
   maxRoomH: 10
-  corridorWidth: 2
-  extraConnectionChance: 0.494
+  corridorWidth: 1
+  extraConnectionChance: 0.25
   floor: {fileID: 1258203155}
   wall: {fileID: 19056796}
 --- !u!1 &1855646125
