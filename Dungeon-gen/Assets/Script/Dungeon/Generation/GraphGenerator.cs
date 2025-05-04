@@ -1,199 +1,244 @@
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
-using DungeonGen.Core;
 
 namespace DungeonGen.Generation
 {
-    public static class GraphGenerator
+    /// <summary>
+    /// ルーム中心を結ぶ全エッジ → MST → 余分エッジを追加
+    /// </summary>
+    public class GraphGenerator
     {
         public struct Edge
         {
-            public int A, B;
-            public float Len;
+            public int A;     // 部屋インデックス
+            public int B;     // 部屋インデックス
+            public float Len; // 距離
 
-            public override bool Equals(object obj)
+            public Edge(int a, int b, float len)
             {
-                if (!(obj is Edge other)) return false;
-                return (A == other.A && B == other.B) || (A == other.B && B == other.A);
-            }
-
-            public override int GetHashCode()
-            {
-                int min = Mathf.Min(A, B);
-                int max = Mathf.Max(A, B);
-                return min * 10000 + max;
+                A = a;
+                B = b;
+                Len = len;
             }
         }
 
+        // 部屋間の全エッジを作成
         public static List<Edge> CreateEdges(IReadOnlyList<RectInt> rooms)
         {
-            var pts = rooms.Select(r => new Vector2(r.center.x, r.center.y)).ToList();
-            var tris = DelaunayTriangulation.Triangulate(pts);
-
-            var edgeSet = new HashSet<(int, int)>();
-            void AddEdge(int i, int j)
+            if (rooms == null || rooms.Count <= 1)
             {
-                if (i > j) (i, j) = (j, i);
-                edgeSet.Add((i, j));
-            }
-
-            foreach (var t in tris)
-            {
-                AddEdge(t.i0, t.i1);
-                AddEdge(t.i1, t.i2);
-                AddEdge(t.i2, t.i0);
-            }
-
-            return edgeSet.Select(e => new Edge
-            {
-                A = e.Item1,
-                B = e.Item2,
-                Len = Vector2.Distance(pts[e.Item1], pts[e.Item2])
-            }).ToList();
-        }
-
-        public static List<Edge> PrimMST(List<Edge> edges, int nRooms)
-        {
-            // エッジがない場合は早期リターン
-            if (edges.Count == 0 || nRooms <= 1)
-            {
-                Debug.LogWarning("接続するための有効なエッジまたは部屋がありません");
+                Debug.LogWarning("部屋が不足しているためエッジは生成されません");
                 return new List<Edge>();
             }
 
-            var vis = new HashSet<int> { 0 };  // 最初の部屋から開始
-            var mst = new List<Edge>();
+            var result = new List<Edge>();
 
-            // すべての部屋が訪問されるまで繰り返す
-            while (vis.Count < nRooms)
+            // 全部屋の中心点を取得
+            var centers = rooms.Select(r => r.center).ToList();
+
+            // ドロネー三角分割とフォールバックメカニズム
+            try
             {
-                Edge bestEdge = new Edge { A = -1, B = -1, Len = float.MaxValue };
-                bool foundEdge = false;
-
-                // まだ訪問されていない部屋につながるエッジの中で最短のものを探す
-                foreach (var e in edges)
+                // 完全グラフ（全部屋間の接続）を生成
+                Debug.Log("全部屋間の接続を生成します（完全グラフ）");
+                for (int i = 0; i < centers.Count; i++)
                 {
-                    // XORで「片方だけ訪問済み」のエッジを選ぶ
-                    if (vis.Contains(e.A) ^ vis.Contains(e.B))
+                    for (int j = i + 1; j < centers.Count; j++)
                     {
-                        if (e.Len < bestEdge.Len)
-                        {
-                            bestEdge = e;
-                            foundEdge = true;
-                        }
+                        float dist = Vector2.Distance(centers[i], centers[j]);
+                        result.Add(new Edge(i, j, dist));
                     }
                 }
 
-                // 接続可能なエッジが見つからない場合（グラフが切断されている）
-                if (!foundEdge)
+                Debug.Log($"完全グラフ: {result.Count}本のエッジを生成");
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"エッジ生成中にエラー: {e.Message}");
+                result.Clear();
+
+                // エラー時の最低限の接続
+                for (int i = 0; i < centers.Count - 1; i++)
                 {
-                    Debug.LogWarning($"MST生成: {vis.Count}/{nRooms}部屋を接続した後、接続可能なエッジが見つかりません");
-
-                    // 未訪問の部屋を強制的に最も近い訪問済み部屋と接続
-                    foreach (int i in Enumerable.Range(0, nRooms).Where(i => !vis.Contains(i)))
-                    {
-                        Edge closestEdge = edges
-                            .Where(e => (e.A == i && vis.Contains(e.B)) || (e.B == i && vis.Contains(e.A)))
-                            .OrderBy(e => e.Len)
-                            .FirstOrDefault();
-
-                        if (closestEdge.A != -1) // 有効なエッジが見つかった
-                        {
-                            mst.Add(closestEdge);
-                            vis.Add(vis.Contains(closestEdge.A) ? closestEdge.B : closestEdge.A);
-                        }
-                        else
-                        {
-                            // 完全に孤立した部屋の場合、最も近い訪問済み部屋と強制的に接続
-                            int closest = -1;
-                            float minDist = float.MaxValue;
-
-                            foreach (int v in vis)
-                            {
-                                float dist = Vector2.Distance(
-                                    new Vector2(i % nRooms, i / nRooms),
-                                    new Vector2(v % nRooms, v / nRooms)
-                                );
-
-                                if (dist < minDist)
-                                {
-                                    minDist = dist;
-                                    closest = v;
-                                }
-                            }
-
-                            if (closest != -1)
-                            {
-                                var newEdge = new Edge { A = i, B = closest, Len = minDist };
-                                mst.Add(newEdge);
-                                vis.Add(i);
-                            }
-                        }
-                    }
-                    continue;
+                    float dist = Vector2.Distance(centers[i], centers[i + 1]);
+                    result.Add(new Edge(i, i + 1, dist));
                 }
-
-                mst.Add(bestEdge);
-                vis.Add(vis.Contains(bestEdge.A) ? bestEdge.B : bestEdge.A);
             }
 
-            Debug.Log($"MST生成完了: すべての{nRooms}部屋を{mst.Count}本のエッジで接続");
-            return mst;
+            Debug.Log($"最終的なエッジ数: {result.Count}");
+            return result;
         }
 
-        public static List<Edge> AddExtraConnections(List<Edge> allEdges, List<Edge> mstEdges, float extraConnectionChance)
+        // Primのアルゴリズムで最小全域木を計算
+        public static List<Edge> PrimMST(List<Edge> edges, int roomCount)
+        {
+            if (roomCount <= 1)
+                return new List<Edge>();
+
+            var result = new List<Edge>();
+            var visited = new HashSet<int>();
+
+            // 最初の部屋を訪問済みに
+            visited.Add(0);
+
+            // N-1個のエッジを追加（N = 部屋数）
+            while (result.Count < roomCount - 1 && visited.Count < roomCount)
+            {
+                Edge? bestEdge = null;
+                float minLength = float.MaxValue;
+
+                // 訪問済み→未訪問の最短エッジを探す
+                foreach (var edge in edges)
+                {
+                    bool aVisited = visited.Contains(edge.A);
+                    bool bVisited = visited.Contains(edge.B);
+
+                    if ((aVisited && !bVisited) || (!aVisited && bVisited))
+                    {
+                        if (edge.Len < minLength)
+                        {
+                            bestEdge = edge;
+                            minLength = edge.Len;
+                        }
+                    }
+                }
+
+                if (bestEdge.HasValue)
+                {
+                    result.Add(bestEdge.Value);
+                    visited.Add(bestEdge.Value.A);
+                    visited.Add(bestEdge.Value.B);
+                }
+                else
+                {
+                    break; // これ以上接続できるエッジがない
+                }
+            }
+
+            return result;
+        }
+
+        // 追加エッジ選択（サイクル生成）
+        public static List<Edge> AddExtraConnections(List<Edge> allEdges, List<Edge> mstEdges, float extraEdgeRatio)
         {
             var result = new List<Edge>(mstEdges);
             int initialCount = result.Count;
 
-            // MST以外の余分なエッジを取得し、長さでソート
-            var remainingEdges = allEdges
-                .Where(e => !mstEdges.Any(m => (m.A == e.A && m.B == e.B) || (m.A == e.B && m.B == e.A)))
-                .OrderBy(e => e.Len)  // 長さの短いエッジを優先
-                .ToList();
-
-            Debug.Log($"MST接続数: {initialCount}, 追加候補接続数: {remainingEdges.Count}, 確率: {extraConnectionChance:F2}");
-
-            // 余分な接続を制限
-            int maxExtraEdges = Mathf.Min(remainingEdges.Count, mstEdges.Count / 3); // 基本接続の1/3まで
-            int addedCount = 0;
-            HashSet<int> connectedRooms = new HashSet<int>();
-
-            // すでに接続されている部屋のペアを記録
+            // 部屋数の推定（最大の部屋インデックス+1で概算）
+            int maxRoomId = 0;
             foreach (var edge in mstEdges)
             {
-                connectedRooms.Add(edge.A * 10000 + edge.B);
-                connectedRooms.Add(edge.B * 10000 + edge.A);
+                maxRoomId = Mathf.Max(maxRoomId, edge.A, edge.B);
             }
+            int roomCount = maxRoomId + 1;
 
-            foreach (var edge in remainingEdges)
+            // 追加するエッジ数（絶対数値に変換）
+            int extraEdgesToAdd = Mathf.Max(5, Mathf.FloorToInt(mstEdges.Count * extraEdgeRatio));
+            Debug.Log($"追加接続数: {extraEdgesToAdd}本 (基本MST: {mstEdges.Count}本, 割合: {extraEdgeRatio:F2})");
+
+            // 既存エッジを記録
+            var existingPairs = new HashSet<string>();
+            foreach (var edge in result)
             {
-                // すでに追加済みのエッジ数が上限に達した場合は終了
-                if (addedCount >= maxExtraEdges) break;
+                int a = Mathf.Min(edge.A, edge.B);
+                int b = Mathf.Max(edge.A, edge.B);
+                existingPairs.Add($"{a}-{b}");
+            }
 
-                // 過密接続を避ける - 同じ部屋ペアへの複数接続を制限
-                int key1 = edge.A * 10000 + edge.B;
-                int key2 = edge.B * 10000 + edge.A;
-
-                // すでに接続されているペアは追加確率を下げる
-                float actualChance = extraConnectionChance;
-                if (connectedRooms.Contains(key1) || connectedRooms.Contains(key2))
+            // 候補エッジをフィルタリング（既存エッジを除外）
+            var validCandidates = new List<Edge>();
+            foreach (var edge in allEdges)
+            {
+                if (edge.A >= roomCount || edge.B >= roomCount)
                 {
-                    actualChance *= 0.3f; // 70%減の確率
+                    // インデックスエラー防止のため無効なエッジをスキップ
+                    continue;
                 }
 
-                if (Random.value < actualChance)
+                int a = Mathf.Min(edge.A, edge.B);
+                int b = Mathf.Max(edge.A, edge.B);
+
+                if (!existingPairs.Contains($"{a}-{b}"))
                 {
-                    result.Add(edge);
-                    connectedRooms.Add(key1);
-                    connectedRooms.Add(key2);
-                    addedCount++;
+                    validCandidates.Add(edge);
                 }
             }
 
-            Debug.Log($"追加接続数: {addedCount}, 最終接続数: {result.Count}");
+            Debug.Log($"候補エッジ数: {validCandidates.Count}本");
+
+            if (validCandidates.Count == 0)
+            {
+                Debug.LogWarning("追加候補エッジがありません - サイクルは生成されません");
+                return result;
+            }
+
+            // 全ての候補を距離の長い順にソート
+            validCandidates.Sort((a, b) => b.Len.CompareTo(a.Len));
+
+            // 長距離エッジを確実に含める（上位20%）
+            int longEdgeCount = Mathf.Max(2, Mathf.FloorToInt(validCandidates.Count * 0.2f));
+            longEdgeCount = Mathf.Min(longEdgeCount, extraEdgesToAdd / 2); // 最大でも半分まで
+
+            // 長距離エッジの追加
+            for (int i = 0; i < longEdgeCount && i < validCandidates.Count; i++)
+            {
+                var edge = validCandidates[i];
+                result.Add(edge);
+                Debug.Log($"長距離サイクル: 部屋{edge.A}-{edge.B}, 距離={edge.Len:F1}");
+
+                // 追加したエッジを記録
+                int a = Mathf.Min(edge.A, edge.B);
+                int b = Mathf.Max(edge.A, edge.B);
+                existingPairs.Add($"{a}-{b}");
+            }
+
+            // 残りをランダム選択
+            var remainingCandidates = validCandidates
+                .Where(e =>
+                {
+                    int a = Mathf.Min(e.A, e.B);
+                    int b = Mathf.Max(e.A, e.B);
+                    return !existingPairs.Contains($"{a}-{b}");
+                })
+                .ToList();
+
+            // ランダム化
+            System.Random rng = new System.Random(System.DateTime.Now.Ticks.GetHashCode());
+            remainingCandidates = remainingCandidates
+                .OrderBy(e => rng.Next())
+                .ToList();
+
+            // 残りのエッジを追加
+            int remaining = extraEdgesToAdd - longEdgeCount;
+            for (int i = 0; i < remaining && i < remainingCandidates.Count; i++)
+            {
+                result.Add(remainingCandidates[i]);
+
+                int a = Mathf.Min(remainingCandidates[i].A, remainingCandidates[i].B);
+                int b = Mathf.Max(remainingCandidates[i].A, remainingCandidates[i].B);
+                Debug.Log($"追加サイクル: 部屋{a}-{b}, 距離={remainingCandidates[i].Len:F1}");
+            }
+
+            Debug.Log($"サイクル追加完了: {result.Count - initialCount}個 (目標: {extraEdgesToAdd}個)");
             return result;
+        }
+
+        // 補助メソッド - エッジの重複チェック
+        private static void AddUniqueEdge(List<Edge> edges, int a, int b, List<Vector2> centers)
+        {
+            // 同じ部屋へのエッジはスキップ
+            if (a == b) return;
+
+            // 既に同じ部屋間のエッジがあるかチェック
+            foreach (var edge in edges)
+            {
+                if ((edge.A == a && edge.B == b) || (edge.A == b && edge.B == a))
+                    return;
+            }
+
+            float dist = Vector2.Distance(centers[a], centers[b]);
+            edges.Add(new Edge(a, b, dist));
         }
     }
 }
