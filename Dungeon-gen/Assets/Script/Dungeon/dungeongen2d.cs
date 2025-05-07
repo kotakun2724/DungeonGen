@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using DungeonGen.Core;
 using DungeonGen.Generation;
+using DungeonGen;
 
 /// <summary>
 /// 2‑D 可変幅ダンジョン（高さ 1 フロア）。
@@ -24,6 +25,9 @@ public class Dungeon2DController : MonoBehaviour
     [Header("Corridor")]
     [Range(1, 4)] public int corridorWidth = 1;
 
+    [Header("プレイヤー設定")]
+    [SerializeField] private PlayerSpawner playerSpawner;
+
     [Tooltip("追加接続の割合 (0-2.0: 1.0=MST本数と同じ数を追加)")]
     [Range(0, 2.0f)] public float extraEdgeRatio = 0.5f;
 
@@ -31,9 +35,19 @@ public class Dungeon2DController : MonoBehaviour
     public GameObject floorPrefab;
     public GameObject wallPrefab;
 
-    void Start()
+    private void Awake()
     {
-        // 起動時にダンジョン生成を行う
+        // PlayerSpawnerコンポーネントを取得（なければ検索）
+        if (playerSpawner == null)
+        {
+            playerSpawner = FindObjectOfType<PlayerSpawner>();
+            Debug.Log("PlayerSpawner検索結果: " + (playerSpawner != null ? "見つかりました" : "見つかりませんでした"));
+        }
+    }
+
+    private void Start()
+    {
+        // ゲーム開始時にダンジョン生成
         RegenerateDungeon();
     }
 
@@ -72,6 +86,27 @@ public class Dungeon2DController : MonoBehaviour
 
         // 5. Render
         new PrefabPlacer(map, transform, floorPrefab, wallPrefab).Render();
+
+        // プレイヤー生成を試みる
+        if (playerSpawner != null)
+        {
+            Debug.Log("プレイヤー生成開始...");
+            playerSpawner.SpawnPlayer(roomGen.Rooms, map);
+        }
+        else
+        {
+            // プレイヤースポナーがなければ、再度検索を試みる
+            playerSpawner = FindObjectOfType<PlayerSpawner>();
+            if (playerSpawner != null)
+            {
+                Debug.Log("プレイヤー生成開始（再検索後）...");
+                playerSpawner.SpawnPlayer(roomGen.Rooms, map);
+            }
+            else
+            {
+                Debug.LogWarning("PlayerSpawnerが見つかりません。プレイヤーは生成されません。");
+            }
+        }
     }
 
     // インスペクターからも再生成できるように
@@ -79,5 +114,20 @@ public class Dungeon2DController : MonoBehaviour
     public void InspectorRegenerate()
     {
         RegenerateDungeon();
+    }
+
+    // プレイヤースポナーがアタッチされているか確認するためのメソッド（必要に応じて使用）
+    [ContextMenu("Verify Player Spawner")]
+    public void VerifyPlayerSpawner()
+    {
+        if (playerSpawner == null)
+        {
+            playerSpawner = FindObjectOfType<PlayerSpawner>();
+            Debug.Log("PlayerSpawner検索結果: " + (playerSpawner != null ? "見つかりました" : "見つかりませんでした"));
+        }
+        else
+        {
+            Debug.Log("PlayerSpawnerは既に設定されています");
+        }
     }
 }
